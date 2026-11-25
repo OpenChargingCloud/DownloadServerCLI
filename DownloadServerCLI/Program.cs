@@ -62,7 +62,8 @@ namespace cloud.charging.open.DownloadServer
                                    "the files of the area 'firmware' by HTTP GET and over SFTP, from 'files/firmware' beside it; the " +
                                    "\"downloadServer\" section says otherwise - see the README.",
             CertificateKinds:      DownloadServerNode.CertificateKinds,
-            Synopsis:              [ "[--download-port <n>]", "[--download-listen <address>]", "[--files <directory>]", "[--areas <area>[,<area>...]]",
+            Synopsis:              [ "[--download-port <n>]", "[--download-listen <address>]", "[--download-https]", "[--download-https-cert <file>]",
+                                     "[--download-https-key <file>]", "[--download-url <url>]", "[--files <directory>]", "[--areas <area>[,<area>...]]",
                                      "[--no-http-downloads | --no-sftp-downloads]", "[--anonymous-downloads]" ],
             AfterTheWebInterface: [
                 .. NodeUsage.Wrap("The files and their downloads - each of these says for this start what the \"downloadServer\" " +
@@ -74,6 +75,14 @@ namespace cloud.charging.open.DownloadServer
                                                                     "on the loopback."),
                 .. NodeUsage.Switch("--download-listen <address>",  "the address files are offered on by HTTP GET (default: \"any\", every address of both " +
                                                                     "families). Not --any, which is the web interface's - and SSH's, and so SFTP's."),
+                .. NodeUsage.Switch("--download-https",             $"serve HTTP downloads over TLS, with a certificate of the download port's own: the certificate " +
+                                                                    $"store's TLS server identity for \"{DownloadServerSettings.DownloadListener}\", or one told no listener. " +
+                                                                    "Not --https, which is the web interface's."),
+                .. NodeUsage.Switch("--download-https-cert <file>", "the same with the certificate and its intermediates in a PEM file instead - certbot's fullchain.pem."),
+                .. NodeUsage.Switch("--download-https-key <file>",  "the key that goes with it, where that is in a file of its own - certbot's privkey.pem."),
+                .. NodeUsage.Switch("--download-url <url>",         "the URL charging stations reach the download port at - a name rather than an address, a " +
+                                                                    "proxy's \"https\" in front - which the banner and the web interface tell them (default: " +
+                                                                    "guessed from --download-listen, or the name of this machine)."),
                 .. NodeUsage.Switch("--files <directory>",          $"where the areas and the record of the downloads lie (default: \"{DownloadServerSettings.DefaultDirectory}\" " +
                                                                     "beside the configuration file)."),
                 .. NodeUsage.Switch("--areas <area>[,<area>...]",   $"the areas files are offered in, one directory each below the files and the first part of " +
@@ -229,6 +238,10 @@ namespace cloud.charging.open.DownloadServer
             var                     noHTTP          = false;
             var                     noSFTP          = false;
             var                     anonymous       = false;
+            var                     downloadHTTPS   = false;
+            String?                 downloadCert    = null;
+            String?                 downloadKey     = null;
+            Uri?                    downloadURL     = null;
 
             var rest = arguments.Rest;
 
@@ -294,11 +307,65 @@ namespace cloud.charging.open.DownloadServer
                         anonymous = true;
                         break;
 
+                    case "--download-https":
+                        downloadHTTPS = true;
+                        break;
+
+                    case "--download-https-cert":
+                    case "--download-https-key":
+                        var which = rest[i];
+                        if (!NodeArguments.TryTakeValue(rest, ref i, out var pemFile) || String.IsNullOrWhiteSpace(pemFile))
+                        {
+                            NodeProgram.Say(Console.Error, $"Missing PEM file after {which}!");
+                            return 2;
+                        }
+                        if (!File.Exists(pemFile))
+                        {
+                            NodeProgram.Say(Console.Error, $"{which}: there is no file '{pemFile}'.");
+                            return 2;
+                        }
+                        if (which == "--download-https-cert")
+                            downloadCert = Path.GetFullPath(pemFile);
+                        else
+                            downloadKey  = Path.GetFullPath(pemFile);
+                        break;
+
+                    case "--download-url":
+                        if (!NodeArguments.TryTakeValue(rest, ref i, out var urlText) ||
+                            !DownloadServerSettings.TryParsePublicURL(urlText, out downloadURL, out var urlError))
+                        {
+                            NodeProgram.Say(Console.Error, "Missing or invalid URL after --download-url, as \"https://downloads.example.org:8365/\"!");
+                            return 2;
+                        }
+                        break;
+
                     default:
                         return NodeArguments.Unknown(rest[i], Usage);
 
                 }
             }
+
+            if (downloadHTTPS && downloadCert is not null)
+            {
+                NodeProgram.Say(Console.Error, "--download-https shows the certificate store's identity and --download-https-cert the one in a file: give one of them.");
+                return 2;
+            }
+
+            if (downloadKey is not null && downloadCert is null)
+            {
+                NodeProgram.Say(Console.Error, "--download-https-key is the key of the certificate --download-https-cert names: give that as well.");
+                return 2;
+            }
+
+            if (downloadCert is not null && downloadKey is null && !File.ReadAllText(downloadCert).Contains("PRIVATE KEY", StringComparison.Ordinal))
+            {
+                NodeProgram.Say(Console.Error, $"--download-https-cert: '{downloadCert}' holds no private key. Give the file of its key with --download-https-key.");
+                return 2;
+            }
+
+            var downloadTLS = downloadHTTPS          ? new WebTLSConfiguration(WebCertificateSource.Store)
+                            : downloadCert is not null ? new WebTLSConfiguration(new WebCertificateSource(downloadCert, downloadKey))
+                            : null;
 
             var root = NodeProgram.RepositoryRoot("DownloadServerCLI.slnx");
 
@@ -328,6 +395,8 @@ namespace cloud.charging.open.DownloadServer
                            // never written back.
                            CommandLine:       settings => settings with {
                                                   HTTPPort       = downloadPort   ?? settings.HTTPPort,
+                                                  TLS            = downloadTLS    ?? settings.TLS,
+                                                  PublicURL      = downloadURL    ?? settings.PublicURL,
                                                   HTTPListen     = downloadListen ?? settings.HTTPListen,
                                                   Directory      = files          ?? settings.Directory,
                                                   Areas          = areas          ?? settings.Areas,

@@ -72,6 +72,10 @@ Every switch of the download server says for one start what the
 |---|---|
 | `--download-port <n>` | the TCP port files are offered on by HTTP GET (8365) |
 | `--download-listen <address>` | where files are offered by HTTP GET (`any`, every address of both families) |
+| `--download-https` | HTTP downloads over TLS, with the certificate store's identity for the listener `download` |
+| `--download-https-cert <file>` | the same with a certificate in a PEM file - certbot's `fullchain.pem` |
+| `--download-https-key <file>` | its key, where that is a file of its own - certbot's `privkey.pem` |
+| `--download-url <url>` | the URL charging stations reach the download port at (guessed where not given) |
 | `--files <directory>` | where the areas and the record of the downloads lie (`files` beside the configuration file) |
 | `--areas <area>[,<area>...]` | the areas files are offered in (`firmware`) |
 | `--no-http-downloads` | nothing offered by HTTP GET |
@@ -92,7 +96,10 @@ directory, and no longer once it is gone. Files are published
 * on the **Files** page, or with `PUT /api/v1/downloadServer/files/<area>/<name>` -
   in one request up to what the web interface's HTTP server takes as one,
   a larger file in parts (`?offset=<byte>`, the last with `&final=true`), as
-  the Files page sends it;
+  the Files page sends it. That server waits half a minute for the body of
+  one request: over a line too slow for a part of 4 MiB in that time, the
+  Files page sends it again half as large - down to 64 KiB - and nothing of
+  the part that took too long is kept;
 * over SFTP, by an account that may publish them - the `publisher` role, or
   an administrator: `sftp> put station-4.2.1.bin /firmware/`;
 * by putting them in the area's directory by hand.
@@ -146,10 +153,32 @@ say. `401` without credentials (or with wrong ones), `403` for an account that
 may not download, `404` for a file that is not offered, `416` for a range
 beyond the end. Nothing else is served on that port.
 
-Over plain HTTP the file and the password cross the network in the clear, and
-the download server says so at every start. Where the web interface speaks
-TLS - `"web": { "tls": ... }`, or `--https` - the download port shows the same
-certificate; otherwise put a proxy that speaks TLS in front.
+The file - or the range of it - is sent from the disk as the charging station
+reads it, and never held in memory: a download costs a buffer or two of
+80 KiB, however large the file. There is no time set for the whole of it, so a
+charging station on a slow line takes as long as it needs; one that stops
+reading for ten minutes counts as having given up, and is recorded with what
+it read.
+
+The download port is an HTTP server of its own, and has a certificate of its
+own: `"downloadServer": { "tls": ... }` - or `--download-https` - and not the
+web interface's `web.tls`, so that either may speak TLS without the other, and
+each under the name it is reached by. As `web.tls`, it is
+`{ "certificate": "store" }` - the certificate store's TLS server identity for
+the listener `download`, or one told no listener; an identity told `web` only
+is never shown here - or `{ "certificate": { "fullchain": "<file>",
+"privateKey": "<file>" } }`, read again whenever the files change. With
+nothing to show, a connection is refused rather than served in the clear.
+
+Over plain HTTP the file can be changed on its way and the password crosses
+the network in the clear, and the download server says so at every start -
+unless `publicURL` says `https`, which means a proxy in front speaks TLS.
+
+The URL the banner, the prompt and the web interface tell charging stations
+is `publicURL` - `"https://firmware.example.org:8365/"`, or a proxy's, a path
+below it included - or `--download-url`; where neither says it, it is
+guessed: the address the port listens on, or the name of this machine where
+it listens on every address, and the log says so.
 
 
 ### Downloading over SFTP
@@ -180,6 +209,8 @@ section of the download server, with every key and its default:
     "http":           true,
     "httpListen":     "any",
     "httpPort":       8365,
+    "tls":            null,
+    "publicURL":      null,
     "anonymousHTTP":  false,
     "sftp":           true,
     "maxFileSize":    1073741824
@@ -189,6 +220,12 @@ section of the download server, with every key and its default:
   }
 }
 ```
+
+`tls` is `{ "certificate": "store" }` or `{ "certificate": { "fullchain":
+"<file>", "privateKey": "<file>" } }` for HTTPS on the download port, paths
+beside the configuration file, and no `redirectPort`; `publicURL` the URL
+charging stations are told, `http` or `https`, without credentials, query or
+fragment.
 
 An area is named with lower-case letters, digits, `-` and `_`; `logs` is
 every node's own over SFTP and cannot be one. SFTP is served by default on a
@@ -242,7 +279,8 @@ server has four pages of its own:
   first, filtered by downloader and by file (kept in the address of the page,
   so that it can be sent as a link).
 * **Download server** - how files are offered, the URL a charging station is
-  given, the `curl` and `sftp` lines to try it with, and what is offered.
+  given and where the port listens, the certificate the download port shows,
+  the `curl` and `sftp` lines to try it with, and what is offered.
 * **Downloaders** - the accounts in the downloader role, how many downloads
   each made and when last; made with a form, given a new password, taken away.
 
@@ -320,9 +358,16 @@ is not offered refused; a publisher publishes and takes away files but sees no
 downloads; a new password and a removed downloader shut the old credentials
 out; a file put in its area by hand offered at once, and fetched without
 credentials where that is allowed; what a publication that never finished left
-taken away at the next start - and WWCP_Node's conformance suite asked of a
-download server, its web interface among it. The web interface's own tests are
-run by node, in `libs/DownloadServer/DownloadServer/Frontend`:
+taken away at the next start; the download port on its own: 64 MiB fetched
+whole and from a byte on for far less memory than they are large, a download
+that stops reading for longer than half a minute served to its end, a
+certificate of its own shown while the web interface speaks plain HTTP and,
+with nothing in the store for it, a connection refused rather than served in
+the clear, the URL charging stations are told, the new keys read - and
+WWCP_Node's conformance suite asked of a download server, its web interface
+among it. The web interface's own tests are
+run by node, in `libs/DownloadServer/DownloadServer/Frontend` - among them a
+file published in parts that are made smaller where one takes too long:
 
 ```
 npm run typecheck
