@@ -96,8 +96,10 @@ directory, and no longer once it is gone. Files are published
 * on the **Files** page, or with `PUT /api/v1/downloadServer/files/<area>/<name>` -
   in one request up to what the web interface's HTTP server takes as one,
   a larger file in parts (`?offset=<byte>`, the last with `&final=true`), as
-  the Files page sends it. That server waits half a minute for the body of
-  one request: over a line too slow for a part of 4 MiB in that time, the
+  the Files page sends it. That server waits five minutes for the body of
+  one request - `"web": { "requestBodyTimeout": <seconds> }` in the
+  configuration file says how long otherwise, WWCP_Node's key, a second to a
+  day -: over a line too slow for a part of 4 MiB in that time, the
   Files page sends it again half as large - down to 64 KiB - and nothing of
   the part that took too long is kept;
 * over SFTP, by an account that may publish them - the `publisher` role, or
