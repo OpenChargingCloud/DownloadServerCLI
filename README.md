@@ -90,7 +90,9 @@ disk is what is offered: a file is offered as soon as it is in its area's
 directory, and no longer once it is gone. Files are published
 
 * on the **Files** page, or with `PUT /api/v1/downloadServer/files/<area>/<name>` -
-  up to what the web interface's HTTP server takes as one request;
+  in one request up to what the web interface's HTTP server takes as one,
+  a larger file in parts (`?offset=<byte>`, the last with `&final=true`), as
+  the Files page sends it;
 * over SFTP, by an account that may publish them - the `publisher` role, or
   an administrator: `sftp> put station-4.2.1.bin /firmware/`;
 * by putting them in the area's directory by hand.
@@ -201,6 +203,12 @@ the file, the status it was answered with, from which byte on and how many
 bytes, how large the file was then and whether it was fetched to its end, the
 address it came from, and for HTTP the User-Agent it said.
 
+A download over HTTP is recorded once its last byte has been read - or, where
+the client gave up, once nothing more was read of it for ten minutes - with
+the bytes read and sent for it. What arrived the server cannot know: a file
+that lay whole in the TCP buffers when the client went away is recorded as
+fetched whole.
+
 
 ### The prompt
 
@@ -256,6 +264,7 @@ signed in at `/ext/login`:
 | `GET  v1/downloadServer/files/{area}/{name}` | one file: its size, when it was written, its SHA-256 |
 | `GET  v1/downloadServer/files/{area}/{name}/content` | the file itself, to save |
 | `PUT  v1/downloadServer/files/{area}/{name}` | the body offered as that file, in the place of the one of that name |
+| `PUT  v1/downloadServer/files/{area}/{name}?offset=N` | one part of it, at byte N - `0` begins anew -, with `&final=true` the last; `409` with `received` where N is not where the parts before ended |
 | `POST v1/downloadServer/files/{area}/{name}/remove` | the file offered no more |
 | `GET  v1/downloadServer/downloads` | the downloads - `?downloader=`, `?area=`, `?file=`, `?since=`, `?until=`, `?order=newest\|oldest`, `?skip=`, `?take=` |
 | `GET  v1/downloadServer/downloaders` | the downloaders |
