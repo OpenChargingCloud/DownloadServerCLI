@@ -49,9 +49,11 @@ git submodule update --init --recursive
 
 ### Building and running it
 
-.NET 11 and Node 22 or newer. The build runs `npm ci` and `npm run build` for
-the web interface itself whenever its inputs changed, and embeds it into the
-assembly; `-p:SkipFrontendBuild=true` builds the rest alone.
+.NET 11 and Node 22 or newer - 22.18 or newer for the web interface's own
+tests, which node runs on its TypeScript files directly. The build runs
+`npm ci` and `npm run build` for the web interface itself whenever its inputs
+changed, and embeds it into the assembly; `-p:SkipFrontendBuild=true` builds
+the rest alone.
 
 ```
 dotnet build DownloadServerCLI.slnx
@@ -362,9 +364,11 @@ is not offered refused; a publisher publishes and takes away files but sees no
 downloads; a new password and a removed downloader shut the old credentials
 out; a file put in its area by hand offered at once, and fetched without
 credentials where that is allowed; what a publication that never finished left
-taken away at the next start; the download port on its own: 64 MiB fetched
+taken away at the next start; a file larger than one request published over
+the JSON API in parts; the download port on its own: 64 MiB fetched
 whole and from a byte on for far less memory than they are large, a download
-that stops reading for longer than half a minute served to its end, a
+that stops reading for longer than half a minute served to its end, one the
+client gave up recorded with what was read of it, a
 certificate of its own shown while the web interface speaks plain HTTP and,
 with nothing in the store for it, a connection refused rather than served in
 the clear, the URL charging stations are told, the new keys read - and
@@ -380,8 +384,10 @@ npm test
 ```
 
 **CI** runs them on every push, beside the node's own tests, on Windows and on
-Debian 13; on Debian it then starts the server and asks it: `/` must be the
-embedded web interface, the JSON API must be shut to anybody not signed in,
+Debian 13 - the web interface's on Debian only, as TypeScript does not know
+which platform it is on; on Debian it then starts the server and asks it: `/`
+must be the embedded web interface, the JSON API must be shut to anybody not
+signed in,
 SSH must answer, a download without credentials must be refused - and a file
 published over the JSON API must be fetched by a downloader made over the
 JSON API as it was published, whole and from a byte on, and its download be
